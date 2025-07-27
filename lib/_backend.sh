@@ -1,60 +1,111 @@
 #!/bin/bash
-#
-# functions for setting up app backend
+
+# Colores para output
+WHITE='\033[1;37m'
+GRAY_LIGHT='\033[0;37m'
+NC='\033[0m' # No Color
+
 #######################################
-# creates REDIS db using docker
-# Arguments:
-#   None
+# Configurar usuario actual para deployment
+# Sin preguntas interactivas
 #######################################
-backend_redis_create() {
-  print_banner
+setup_current_user() {
+  printf "${WHITE} 💻 Configurando usuario actual para deployment...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  # Obtener usuario actual
+  CURRENT_USER=$(whoami)
+  echo "Usuario actual: $CURRENT_USER"
+  
+  # Agregar usuario al grupo docker
+  usermod -aG docker $CURRENT_USER
+  
+  # Crear directorio para la aplicación si no existe
+  APP_DIR="/home/$CURRENT_USER"
+  if [[ $CURRENT_USER == "root" ]]; then
+    APP_DIR="/root"
+  fi
+  
+  echo "Directorio de trabajo: $APP_DIR"
+  
+  # Asegurar permisos correctos
+  if [[ $CURRENT_USER != "root" ]]; then
+    chown -R $CURRENT_USER:$CURRENT_USER $APP_DIR
+  fi
+  
+  echo "Usuario $CURRENT_USER configurado exitosamente"
+}
+
+#######################################
+# Crear Redis y PostgreSQL
+# Usa valores por defecto
+#######################################
+backend_redis_create_current_user() {
   printf "${WHITE} 💻 Criando Redis & Banco Postgres...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  # Obtener usuario actual
+  DEPLOY_USER=$(whoami)
+  
+  # Valores por defecto
+  instancia_add="app01"
+  redis_port="6379"
+  mysql_root_password="123456"
 
-  sudo su - root <<EOF
-  usermod -aG docker deploy
+  # Crear Redis usando el usuario actual
+  usermod -aG docker $DEPLOY_USER
   docker run --name redis-${instancia_add} -p ${redis_port}:6379 --restart always --detach redis redis-server --requirepass ${mysql_root_password}
   
   sleep 2
-  sudo su - postgres
+  
+  # Crear base de datos PostgreSQL
+  sudo su - postgres << EOF
   createdb ${instancia_add};
-  psql
-  CREATE USER ${instancia_add} SUPERUSER INHERIT CREATEDB CREATEROLE;
-  ALTER USER ${instancia_add} PASSWORD '${mysql_root_password}';
-  \q
-  exit
+  psql -c "CREATE USER ${instancia_add} SUPERUSER INHERIT CREATEDB CREATEROLE;"
+  psql -c "ALTER USER ${instancia_add} PASSWORD '${mysql_root_password}';"
 EOF
 
-sleep 2
-
+  sleep 2
+  echo "Redis y PostgreSQL configurados para usuario: $DEPLOY_USER"
 }
 
 #######################################
-# sets environment variable for backend.
-# Arguments:
-#   None
+# Configurar variables de ambiente
+# Usa valores por defecto
 #######################################
-backend_set_env() {
-  print_banner
-  printf "${WHITE} 💻 Configurando variáveis de ambiente (backend)...${GRAY_LIGHT}"
+backend_set_env_current_user() {
+  printf "${WHITE} 💻 Configurando variáveis de ambiente...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  # Obtener usuario actual
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
 
-  # ensure idempotency
-  backend_url=$(echo "${backend_url/https:\/\/}")
-  backend_url=${backend_url%%/*}
-  backend_url=https://$backend_url
+  # Valores por defecto
+  backend_url="https://api.example.com"
+  frontend_url="https://app.example.com"
+  backend_port="3000"
+  instancia_add="app01"
+  jwt_secret="jwt_secret_123"
+  jwt_refresh_secret="jwt_refresh_secret_123"
+  redis_port="6379"
+  mysql_root_password="123456"
+  max_user="10"
+  max_whats="5"
 
-  # ensure idempotency
-  frontend_url=$(echo "${frontend_url/https:\/\/}")
-  frontend_url=${frontend_url%%/*}
-  frontend_url=https://$frontend_url
-
-sudo su - deploy << EOF
-  cat <<[-]EOF > /home/deploy/${instancia_add}/backend/.env
+  # Crear directorio si no existe
+  mkdir -p ${DEPLOY_DIR}/${instancia_add}/backend
+  
+  # Crear archivo .env
+  cat > ${DEPLOY_DIR}/${instancia_add}/backend/.env << EOF
 NODE_ENV=
 BACKEND_URL=${backend_url}
 FRONTEND_URL=${frontend_url}
@@ -84,178 +135,76 @@ GERENCIANET_CLIENT_ID=sua-id
 GERENCIANET_CLIENT_SECRET=sua_chave_secreta
 GERENCIANET_PIX_CERT=nome_do_certificado
 GERENCIANET_PIX_KEY=chave_pix_gerencianet
-
-[-]EOF
 EOF
 
+  # Ajustar permisos
+  chown -R $DEPLOY_USER:$DEPLOY_USER ${DEPLOY_DIR}/${instancia_add}
+  
+  echo "Variables de ambiente configuradas en: ${DEPLOY_DIR}/${instancia_add}/backend/.env"
   sleep 2
 }
 
 #######################################
-# installs node.js dependencies
-# Arguments:
-#   None
+# Instalar dependencias del backend
 #######################################
-backend_node_dependencies() {
-  print_banner
+backend_node_dependencies_current_user() {
   printf "${WHITE} 💻 Instalando dependências do backend...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
 
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/backend
+  cd ${DEPLOY_DIR}/${instancia_add}/backend
   npm install
-EOF
 
   sleep 2
 }
 
 #######################################
-# compiles backend code
-# Arguments:
-#   None
+# Compilar código del backend
 #######################################
-backend_node_build() {
-  print_banner
+backend_node_build_current_user() {
   printf "${WHITE} 💻 Compilando o código do backend...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
 
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/backend
+  cd ${DEPLOY_DIR}/${instancia_add}/backend
   npm run build
-EOF
 
   sleep 2
 }
 
-#######################################
-# updates frontend code
-# Arguments:
-#   None
-#######################################
-backend_update() {
-  print_banner
-  printf "${WHITE} 💻 Atualizando o backend...${GRAY_LIGHT}"
-  printf "\n\n"
+# Verificar que se ejecute como root
+if [[ $EUID -ne 0 ]]; then
+   echo "Este script debe ejecutarse como root (sudo)" 
+   exit 1
+fi
 
-  sleep 2
+# Ejecutar todo automáticamente
+setup_current_user
+backend_redis_create_current_user
+backend_set_env_current_user
+backend_node_dependencies_current_user
+backend_node_build_current_user
 
-  sudo su - deploy <<EOF
-  cd /home/deploy/${empresa_atualizar}
-  pm2 stop ${empresa_atualizar}-backend
-  git pull
-  cd /home/deploy/${empresa_atualizar}/backend
-  npm install
-  npm update -f
-  npm install @types/fs-extra
-  rm -rf dist 
-  npm run build
-  npx sequelize db:migrate
-  npx sequelize db:seed
-  pm2 start ${empresa_atualizar}-backend
-  pm2 save 
-EOF
-
-  sleep 2
-}
-
-#######################################
-# runs db migrate
-# Arguments:
-#   None
-#######################################
-backend_db_migrate() {
-  print_banner
-  printf "${WHITE} 💻 Executando db:migrate...${GRAY_LIGHT}"
-  printf "\n\n"
-
-  sleep 2
-
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/backend
-  npx sequelize db:migrate
-EOF
-
-  sleep 2
-}
-
-#######################################
-# runs db seed
-# Arguments:
-#   None
-#######################################
-backend_db_seed() {
-  print_banner
-  printf "${WHITE} 💻 Executando db:seed...${GRAY_LIGHT}"
-  printf "\n\n"
-
-  sleep 2
-
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/backend
-  npx sequelize db:seed:all
-EOF
-
-  sleep 2
-}
-
-#######################################
-# starts backend using pm2 in 
-# production mode.
-# Arguments:
-#   None
-#######################################
-backend_start_pm2() {
-  print_banner
-  printf "${WHITE} 💻 Iniciando pm2 (backend)...${GRAY_LIGHT}"
-  printf "\n\n"
-
-  sleep 2
-
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/backend
-  pm2 start dist/server.js --name ${instancia_add}-backend
-EOF
-
-  sleep 2
-}
-
-#######################################
-# updates frontend code
-# Arguments:
-#   None
-#######################################
-backend_nginx_setup() {
-  print_banner
-  printf "${WHITE} 💻 Configurando nginx (backend)...${GRAY_LIGHT}"
-  printf "\n\n"
-
-  sleep 2
-
-  backend_hostname=$(echo "${backend_url/https:\/\/}")
-
-sudo su - root << EOF
-cat > /etc/nginx/sites-available/${instancia_add}-backend << 'END'
-server {
-  server_name $backend_hostname;
-  location / {
-    proxy_pass http://127.0.0.1:${backend_port};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_cache_bypass \$http_upgrade;
-  }
-}
-END
-ln -s /etc/nginx/sites-available/${instancia_add}-backend /etc/nginx/sites-enabled
-EOF
-
-  sleep 2
-}
+echo "=== Configuración completada ==="
+echo "Usuario configurado: $(whoami)"
+echo "Directorio de aplicación: $(if [[ $(whoami) == "root" ]]; then echo "/root/app01"; else echo "/home/$(whoami)/app01"; fi)"
