@@ -1,103 +1,277 @@
 #!/bin/bash
-# 
-# functions for setting up app frontend
+
+# Colores para output
+WHITE='\033[1;37m'
+GRAY_LIGHT='\033[0;37m'
+NC='\033[0m' # No Color
 
 #######################################
-# installed node packages
-# Arguments:
-#   None
+# Configurar usuario actual para deployment
+# Sin preguntas interactivas
 #######################################
-frontend_node_dependencies() {
-  print_banner
+setup_current_user() {
+  printf "${WHITE} 💻 Configurando usuario actual para deployment...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  # Obtener usuario actual
+  CURRENT_USER=$(whoami)
+  echo "Usuario actual: $CURRENT_USER"
+  
+  # Agregar usuario al grupo docker
+  usermod -aG docker $CURRENT_USER
+  
+  # Crear directorio para la aplicación si no existe
+  APP_DIR="/home/$CURRENT_USER"
+  if [[ $CURRENT_USER == "root" ]]; then
+    APP_DIR="/root"
+  fi
+  
+  echo "Directorio de trabajo: $APP_DIR"
+  
+  # Asegurar permisos correctos
+  if [[ $CURRENT_USER != "root" ]]; then
+    chown -R $CURRENT_USER:$CURRENT_USER $APP_DIR
+  fi
+  
+  echo "Usuario $CURRENT_USER configurado exitosamente"
+}
+
+#######################################
+# Crear Redis y PostgreSQL
+# Usa valores por defecto
+#######################################
+backend_redis_create_current_user() {
+  printf "${WHITE} 💻 Criando Redis & Banco Postgres...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+  
+  # Obtener usuario actual
+  DEPLOY_USER=$(whoami)
+  
+  # Valores por defecto
+  instancia_add="app01"
+  redis_port="6379"
+  mysql_root_password="123456"
+
+  # Crear Redis usando el usuario actual
+  usermod -aG docker $DEPLOY_USER
+  docker run --name redis-${instancia_add} -p ${redis_port}:6379 --restart always --detach redis redis-server --requirepass ${mysql_root_password}
+  
+  sleep 2
+  
+  # Crear base de datos PostgreSQL
+  sudo su - postgres << EOF
+  createdb ${instancia_add};
+  psql -c "CREATE USER ${instancia_add} SUPERUSER INHERIT CREATEDB CREATEROLE;"
+  psql -c "ALTER USER ${instancia_add} PASSWORD '${mysql_root_password}';"
+EOF
+
+  sleep 2
+  echo "Redis y PostgreSQL configurados para usuario: $DEPLOY_USER"
+}
+
+#######################################
+# Configurar variables de ambiente
+# Usa valores por defecto
+#######################################
+backend_set_env_current_user() {
+  printf "${WHITE} 💻 Configurando variáveis de ambiente...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+  
+  # Obtener usuario actual
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+
+  # Valores por defecto
+  backend_url="https://api.example.com"
+  frontend_url="https://app.example.com"
+  backend_port="3000"
+  instancia_add="app01"
+  jwt_secret="jwt_secret_123"
+  jwt_refresh_secret="jwt_refresh_secret_123"
+  redis_port="6379"
+  mysql_root_password="123456"
+  max_user="10"
+  max_whats="5"
+
+  # Crear directorio si no existe
+  mkdir -p ${DEPLOY_DIR}/${instancia_add}/backend
+  
+  # Crear archivo .env
+  cat > ${DEPLOY_DIR}/${instancia_add}/backend/.env << EOF
+NODE_ENV=
+BACKEND_URL=${backend_url}
+FRONTEND_URL=${frontend_url}
+PROXY_PORT=443
+PORT=${backend_port}
+
+DB_HOST=localhost
+DB_DIALECT=postgres
+DB_USER=${instancia_add}
+DB_PASS=${mysql_root_password}
+DB_NAME=${instancia_add}
+DB_PORT=5432
+
+JWT_SECRET=${jwt_secret}
+JWT_REFRESH_SECRET=${jwt_refresh_secret}
+
+REDIS_URI=redis://:${mysql_root_password}@127.0.0.1:${redis_port}
+REDIS_OPT_LIMITER_MAX=1
+REGIS_OPT_LIMITER_DURATION=3000
+
+USER_LIMIT=${max_user}
+CONNECTIONS_LIMIT=${max_whats}
+CLOSED_SEND_BY_ME=true
+
+GERENCIANET_SANDBOX=false
+GERENCIANET_CLIENT_ID=sua-id
+GERENCIANET_CLIENT_SECRET=sua_chave_secreta
+GERENCIANET_PIX_CERT=nome_do_certificado
+GERENCIANET_PIX_KEY=chave_pix_gerencianet
+EOF
+
+  # Ajustar permisos
+  chown -R $DEPLOY_USER:$DEPLOY_USER ${DEPLOY_DIR}/${instancia_add}
+  
+  echo "Variables de ambiente configuradas en: ${DEPLOY_DIR}/${instancia_add}/backend/.env"
+  sleep 2
+}
+
+#######################################
+# Instalar dependencias del backend
+#######################################
+backend_node_dependencies_current_user() {
+  printf "${WHITE} 💻 Instalando dependências do backend...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
+
+  cd ${DEPLOY_DIR}/${instancia_add}/backend
+  npm install
+
+  sleep 2
+}
+
+#######################################
+# Compilar código del backend
+#######################################
+backend_node_build_current_user() {
+  printf "${WHITE} 💻 Compilando o código do backend...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
+
+  cd ${DEPLOY_DIR}/${instancia_add}/backend
+  npm run build
+
+  sleep 2
+}
+
+#######################################
+# Instalar dependencias del frontend
+#######################################
+frontend_node_dependencies_current_user() {
   printf "${WHITE} 💻 Instalando dependências do frontend...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
 
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/frontend
+  cd ${DEPLOY_DIR}/${instancia_add}/frontend
   npm install
-EOF
 
   sleep 2
 }
 
 #######################################
-# compiles frontend code
-# Arguments:
-#   None
+# Compilar código del frontend
 #######################################
-frontend_node_build() {
-  print_banner
+frontend_node_build_current_user() {
   printf "${WHITE} 💻 Compilando o código do frontend...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
 
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/frontend
+  cd ${DEPLOY_DIR}/${instancia_add}/frontend
   npm run build
-EOF
 
   sleep 2
 }
 
 #######################################
-# updates frontend code
-# Arguments:
-#   None
+# Configurar variables de ambiente del frontend
 #######################################
-frontend_update() {
-  print_banner
-  printf "${WHITE} 💻 Atualizando o frontend...${GRAY_LIGHT}"
-  printf "\n\n"
-
-  sleep 2
-
-  sudo su - deploy <<EOF
-  cd /home/deploy/${empresa_atualizar}
-  pm2 stop ${empresa_atualizar}-frontend
-  git pull
-  cd /home/deploy/${empresa_atualizar}/frontend
-  npm install
-  rm -rf build
-  npm run build
-  pm2 start ${empresa_atualizar}-frontend
-  pm2 save
-EOF
-
-  sleep 2
-}
-
-
-#######################################
-# sets frontend environment variables
-# Arguments:
-#   None
-#######################################
-frontend_set_env() {
-  print_banner
+frontend_set_env_current_user() {
   printf "${WHITE} 💻 Configurando variáveis de ambiente (frontend)...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
 
-  # ensure idempotency
-  backend_url=$(echo "${backend_url/https:\/\/}")
-  backend_url=${backend_url%%/*}
-  backend_url=https://$backend_url
+  # Valores por defecto
+  backend_url="https://api.example.com"
+  frontend_port="3001"
+  instancia_add="app01"
 
-sudo su - deploy << EOF
-  cat <<[-]EOF > /home/deploy/${instancia_add}/frontend/.env
+  # Crear directorio si no existe
+  mkdir -p ${DEPLOY_DIR}/${instancia_add}/frontend
+  
+  # Crear archivo .env para frontend
+  cat > ${DEPLOY_DIR}/${instancia_add}/frontend/.env << EOF
 REACT_APP_BACKEND_URL=${backend_url}
 REACT_APP_HOURS_CLOSE_TICKETS_AUTO = 24
-[-]EOF
 EOF
 
-  sleep 2
-
-sudo su - deploy << EOF
-  cat <<[-]EOF > /home/deploy/${instancia_add}/frontend/server.js
+  # Crear server.js para production
+  cat > ${DEPLOY_DIR}/${instancia_add}/frontend/server.js << EOF
 //simple express server to run frontend production build;
 const express = require("express");
 const path = require("path");
@@ -107,60 +281,63 @@ app.get("/*", function (req, res) {
 	res.sendFile(path.join(__dirname, "build", "index.html"));
 });
 app.listen(${frontend_port});
-
-[-]EOF
 EOF
 
+  # Ajustar permisos
+  chown -R $DEPLOY_USER:$DEPLOY_USER ${DEPLOY_DIR}/${instancia_add}
+  
+  echo "Variables de ambiente del frontend configuradas"
   sleep 2
 }
 
 #######################################
-# starts pm2 for frontend
-# Arguments:
-#   None
+# Iniciar PM2 para frontend
 #######################################
-frontend_start_pm2() {
-  print_banner
+frontend_start_pm2_current_user() {
   printf "${WHITE} 💻 Iniciando pm2 (frontend)...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
+  
+  DEPLOY_USER=$(whoami)
+  if [[ $DEPLOY_USER == "root" ]]; then
+    DEPLOY_DIR="/root"
+  else
+    DEPLOY_DIR="/home/$DEPLOY_USER"
+  fi
+  
+  instancia_add="app01"
 
-  sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/frontend
+  cd ${DEPLOY_DIR}/${instancia_add}/frontend
   pm2 start server.js --name ${instancia_add}-frontend
   pm2 save
-EOF
 
- sleep 2
-  
-  sudo su - root <<EOF
-   pm2 startup
-  sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy
-EOF
+  # Configurar PM2 startup
+  pm2 startup
+  env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u $DEPLOY_USER --hp ${DEPLOY_DIR}
+
   sleep 2
 }
 
 #######################################
-# sets up nginx for frontend
-# Arguments:
-#   None
+# Configurar nginx para frontend
 #######################################
-frontend_nginx_setup() {
-  print_banner
+frontend_nginx_setup_current_user() {
   printf "${WHITE} 💻 Configurando nginx (frontend)...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
-
+  
+  # Valores por defecto
+  frontend_url="https://app.example.com"
+  frontend_port="3001"
+  instancia_add="app01"
+  
   frontend_hostname=$(echo "${frontend_url/https:\/\/}")
 
-sudo su - root << EOF
-
-cat > /etc/nginx/sites-available/${instancia_add}-frontend << 'END'
+  cat > /etc/nginx/sites-available/${instancia_add}-frontend << EOF
 server {
   server_name $frontend_hostname;
-
   location / {
     proxy_pass http://127.0.0.1:${frontend_port};
     proxy_http_version 1.1;
@@ -173,10 +350,34 @@ server {
     proxy_cache_bypass \$http_upgrade;
   }
 }
-END
-
-ln -s /etc/nginx/sites-available/${instancia_add}-frontend /etc/nginx/sites-enabled
 EOF
 
+  ln -s /etc/nginx/sites-available/${instancia_add}-frontend /etc/nginx/sites-enabled
+  
+  echo "Nginx configurado para frontend"
   sleep 2
 }
+
+# Verificar que se ejecute como root
+if [[ $EUID -ne 0 ]]; then
+   echo "Este script debe ejecutarse como root (sudo)" 
+   exit 1
+fi
+
+# Ejecutar todo automáticamente
+setup_current_user
+backend_redis_create_current_user
+backend_set_env_current_user
+backend_node_dependencies_current_user
+backend_node_build_current_user
+frontend_set_env_current_user
+frontend_node_dependencies_current_user
+frontend_node_build_current_user
+frontend_start_pm2_current_user
+frontend_nginx_setup_current_user
+
+echo "=== Configuración completada ==="
+echo "Usuario configurado: $(whoami)"
+echo "Directorio de aplicación: $(if [[ $(whoami) == "root" ]]; then echo "/root/app01"; else echo "/home/$(whoami)/app01"; fi)"
+echo "Backend configurado en puerto 3000"
+echo "Frontend configurado en puerto 3001"
